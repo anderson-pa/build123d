@@ -37,7 +37,7 @@ Step 3: Place Sketch on top of base
 
 The next set of features in this design will be created on the top of the cylinder
 and be described by a planar sketch (``BuildSketch`` is the tool for drawing on planar
-surfaces) , so we'll create a sketch centered on the top of the cylinder.  To locate
+surfaces), so we'll create a sketch centered on the top of the cylinder.  To locate
 this sketch we'll use the cylinder's top Face as shown here:
 
 .. literalinclude:: selector_example.py

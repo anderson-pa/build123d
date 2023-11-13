@@ -241,5 +241,5 @@ or ``show(lego.part)`` depending on the viewer. The part could also be exported 
 file by referencing ``lego.part``.
 
 .. note::
-    Viewers that don't directly support build123d my require a raw OpenCascade object. In this
+    Viewers that don't directly support build123d may require a raw OpenCascade object. In this
     case, append ``.wrapped`` to the object (e.g.) ``show_object(lego.part.wrapped)``.

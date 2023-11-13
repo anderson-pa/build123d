@@ -27,7 +27,7 @@ Step 2: Create Hinge
 ********************
 
 This example uses a common Butt Hinge to connect the lid to the box base so a ``Hinge`` class
-is used to create that can create either of the two hinge leaves. As the focus of this
+is used that can create either of the two hinge leaves. As the focus of this
 tutorial is the joints and not the CAD operations to create objects, this code is not
 described in detail.
 

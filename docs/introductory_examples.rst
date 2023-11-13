@@ -991,7 +991,7 @@ progressively modify the size of each square.
 
     The text "Hello" is placed on top of a rectangle and embossed (raised) by placing a sketch on the
     top face (``topf``). Note that :class:`~build_enums.Align` is used to control the text placement. We re-use
-    the ``topf`` variable to select the same face and deboss (indented) the text "World".
+    the ``topf`` variable to select the same face and deboss (indent) the text "World".
 
     .. literalinclude:: general_examples_algebra.py
         :start-after: [Ex. 34]

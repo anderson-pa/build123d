@@ -45,7 +45,7 @@ Object arithmetic
 Placement arithmetic
 =======================
 
-A ``Part``, ``Sketch`` or ``Curve`` does not have any location or rotation paramater.
+A ``Part``, ``Sketch`` or ``Curve`` does not have any location or rotation parameter.
 The rationale is that an object defines its topology (shape, sizes and its center), but does not know 
 where in space it will be located. Instead, it will be relocated with the ``*`` operator onto a plane 
 and to location relative to the plane (similar ``moved``). 
@@ -60,7 +60,7 @@ The generic forms of object placement are:
         location * alg_compound
 
 2. Placement on the ``plane`` and then moved relative to the ``plane`` by ``location`` 
-(the location is relative to the local corrdinate system of the plane).
+(the location is relative to the local coordinate system of the plane).
 
     .. code-block:: python
 
