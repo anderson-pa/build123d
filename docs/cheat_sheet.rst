@@ -17,8 +17,11 @@ Cheat Sheet
 
             | :class:`~objects_curve.Bezier`
             | :class:`~objects_curve.CenterArc`
+            | :class:`~objects_curve.DoubleTangentArc`
             | :class:`~objects_curve.EllipticalCenterArc`
+            | :class:`~objects_curve.FilletPolyline`
             | :class:`~objects_curve.Helix`
+            | :class:`~objects_curve.IntersectingLine`
             | :class:`~objects_curve.JernArc`
             | :class:`~objects_curve.Line`
             | :class:`~objects_curve.PolarLine`
@@ -48,6 +51,7 @@ Cheat Sheet
             | :class:`~objects_sketch.Text`
             | :class:`~drafting.TechnicalDrawing`
             | :class:`~objects_sketch.Trapezoid`
+            | :class:`~objects_sketch.Triangle`
 
         .. grid-item-card:: 3D - BuildPart
 
@@ -79,6 +83,7 @@ Cheat Sheet
             | :func:`~operations_generic.add`
             | :func:`~operations_generic.chamfer`
             | :func:`~operations_generic.fillet`
+            | :func:`~operations_sketch.full_round`
             | :func:`~operations_sketch.make_face`
             | :func:`~operations_sketch.make_hull`
             | :func:`~operations_generic.mirror`
@@ -95,6 +100,7 @@ Cheat Sheet
             | :func:`~operations_part.extrude`
             | :func:`~operations_generic.fillet`
             | :func:`~operations_part.loft`
+            | :func:`~operations_part.make_brake_formed`
             | :func:`~operations_generic.mirror`
             | :func:`~operations_generic.offset`
             | :func:`~operations_part.revolve`
@@ -157,6 +163,8 @@ Cheat Sheet
     +----------+---------------------+-----------------------------------------+---------------------------------+
     | %        | 0.0 <= float <= 1.0 | :meth:`~topology.Mixin1D.tangent_at`    | Tangent as Vector along object  |
     +----------+---------------------+-----------------------------------------+---------------------------------+
+    | ^        | 0.0 <= float <= 1.0 | :meth:`~topology.Mixin1D.location_at`   | Location along object           |
+    +----------+---------------------+-----------------------------------------+---------------------------------+
 
 .. card:: Shape Operators
 
@@ -165,7 +173,6 @@ Cheat Sheet
     +==========+=====================+=========================================+=============================================+
     | ==       | Any                 | :meth:`~topology.Shape.is_same`         | Compare CAD objects not including meta data |
     +----------+---------------------+-----------------------------------------+---------------------------------------------+
-
 
 .. card:: Plane Operators
 

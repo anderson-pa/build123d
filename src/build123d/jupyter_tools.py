@@ -22,6 +22,7 @@ license:
     limitations under the License.
 
 """
+
 # pylint: disable=no-name-in-module
 from json import dumps
 from typing import Any, Dict, List
@@ -221,12 +222,12 @@ def display(shape: Any) -> Javascript:
         raise ValueError(f"Type {type(shape)} is not supported")
 
     payload.append(
-        dict(
-            shape=to_vtkpoly_string(shape),
-            color=DEFAULT_COLOR,
-            position=[0, 0, 0],
-            orientation=[0, 0, 0],
-        )
+        {
+            "shape": to_vtkpoly_string(shape),
+            "color": DEFAULT_COLOR,
+            "position": [0, 0, 0],
+            "orientation": [0, 0, 0],
+        }
     )
     code = TEMPLATE.format(data=dumps(payload), element="element", ratio=0.5)
 

@@ -1,4 +1,4 @@
-# write me the test for testing the persistence module with unnitest
+# write me the test for testing the persistence module with unittest
 
 import unittest
 from build123d.persistence import (
@@ -17,7 +17,7 @@ class TestPersistence(unittest.TestCase):
         wire = Wire.make_circle(10)
         face = Face.make_rect(10, 5)
         solid = Solid.make_box(10, 5, 2)
-        compound = Compound.make_compound([edge, wire, face, solid])
+        compound = Compound([edge, wire, face, solid])
 
         buffer = serialize_shape(edge.wrapped)
         retrived_edge = deserialize_shape(buffer)

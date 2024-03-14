@@ -213,7 +213,7 @@ class ObjectTests(unittest.TestCase):
     # Face
 
     def test_rect(self):
-        r = Face.make_rect(1, 2)
+        r = Face.make_rect(2, 1)
 
         self.assertTrue(isinstance(r, Shape))
 
@@ -511,8 +511,8 @@ class AlgebraTests(unittest.TestCase):
         l1 = Polyline((0, 0), (1, 0), (1, 1))
         l2 = Line((1, 1), (0, 0))
         l = l1 + l2
-        w = Wire.make_wire(l)
-        self.assertTrue(w.is_closed())
+        w = Wire(l)
+        self.assertTrue(w.is_closed)
         self.assertTupleAlmostEquals(
             w.center(CenterOf.MASS), (0.6464466094067263, 0.35355339059327373, 0.0), 6
         )
@@ -521,7 +521,6 @@ class AlgebraTests(unittest.TestCase):
         l1 = Line((0, 0), (1, 1))
         l2 = Line((0.25, 0.25), (0.75, 0.75))
         l = l1 - l2
-
         vertices = l.vertices().sort_by(Axis.X)
         self.assertEqual(len(vertices), 4)
         self.assertTupleAlmostEquals(vertices[0], (0.0, 0.0, 0.0), 6)
@@ -537,6 +536,17 @@ class AlgebraTests(unittest.TestCase):
         self.assertEqual(len(vertices), 2)
         self.assertTupleAlmostEquals(vertices[0], l2 @ 0, 6)
         self.assertTupleAlmostEquals(vertices[1], l2 @ 1, 6)
+
+    def test_curve_operators(self):
+        l1 = CenterArc((0, 0), 1, 0, 180)
+        l2 = CenterArc((2, 0), 1, 0, -180)
+        l = Curve() + [l1, l2]
+        self.assertTupleAlmostEquals(l @ 0.25, Vector(2.0, -1.0, 0.0), 6)
+        self.assertTupleAlmostEquals(l % 0.25, Vector(-1.0, 0.0, 0.0), 6)
+        self.assertTupleAlmostEquals((l ^ 0.25).position, l @ 0.25, 6)
+        self.assertTupleAlmostEquals(
+            (l ^ 0.25).orientation, Vector(0.0, -90.0, 90.0), 6
+        )
 
     # Part + - & Empty
 
@@ -602,6 +612,53 @@ class AlgebraTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             r = b & Sketch()
 
+    def test_1d_2d_minus(self):
+        line = Line((0, 0), (1, 1))
+        rectangle = Rectangle(1, 1)
+        r = line - rectangle
+        vertices = r.vertices()
+        self.assertEqual(len(vertices), 2)
+        self.assertTupleAlmostEquals(vertices[0], (0.5, 0.5, 0.0), 6)
+        self.assertTupleAlmostEquals(vertices[1], (1.0, 1.0, 0.0), 6)
+
+    def test_1d_3d_minus(self):
+        line = Line((0, 0), (1, 1))
+        box = Box(1, 1, 1)
+        r = line - box
+        vertices = r.vertices()
+        self.assertEqual(len(vertices), 2)
+        self.assertTupleAlmostEquals(vertices[0], (0.5, 0.5, 0.0), 6)
+        self.assertTupleAlmostEquals(vertices[1], (1.0, 1.0, 0.0), 6)
+
+    def test_2d_3d_minus(self):
+        rectangle = Pos(0.5, 0, 0) * Rectangle(1, 1)
+        box = Box(1, 1, 1)
+        r = rectangle - box
+        vertices = r.vertices()
+        self.assertEqual(len(vertices), 4)
+        self.assertTupleAlmostEquals(vertices[0], (0.5, -0.5, 0.0), 6)
+        self.assertTupleAlmostEquals(vertices[1], (0.5, 0.5, 0.0), 6)
+        self.assertTupleAlmostEquals(vertices[2], (1.0, 0.5, 0.0), 6)
+        self.assertTupleAlmostEquals(vertices[3], (1.0, -0.5, 0.0), 6)
+
+    def test_3d_2d_minus(self):
+        box = Box(1, 1, 1)
+        rectangle = Rectangle(1, 1)
+        with self.assertRaises(ValueError):
+            _ = box - rectangle
+
+    def test_3d_1d_minus(self):
+        box = Box(1, 1, 1)
+        line = Line((0, 0), (1, 1))
+        with self.assertRaises(ValueError):
+            _ = box - line
+
+    def test_2d_1d_minus(self):
+        rectangle = Rectangle(1, 1)
+        line = Line((0, 0), (1, 1))
+        with self.assertRaises(ValueError):
+            _ = rectangle - line
+
 
 class LocationTests(unittest.TestCase):
     def test_wheel(self):
@@ -626,7 +683,7 @@ class LocationTests(unittest.TestCase):
 
     def test_wheels(self):
         plane = Plane.ZX
-        rotations = [Rot(y=a) for a in (0, 45, 90, 135)]
+        rotations = [Rot(Y=a) for a in (0, 45, 90, 135)]
 
         s = Sketch()
         for i, outer_loc in enumerate(GridLocations(3, 3, 2, 2)):

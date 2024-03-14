@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 # pylint has trouble with the OCP imports
 # pylint: disable=no-name-in-module, import-error
 
@@ -83,9 +84,9 @@ def serialize_location(location: TopLoc_Location) -> bytes:
     """
     if location is None:
         return None
-    transfo = location.Transformation()
-    translation = transfo.TranslationPart()
-    rotation = transfo.GetRotation()
+    transform = location.Transformation()
+    translation = transform.TranslationPart()
+    rotation = transform.GetRotation()
     # convert floats in bytes
     translation_bytes = bytearray()
     for i in range(1, 4):
@@ -126,10 +127,10 @@ def deserialize_location(buffer: bytes) -> TopLoc_Location:
     )
 
     # Create the TopLoc_Location object
-    transfo = gp_Trsf()
-    transfo.SetTransformation(rotation, translation)
+    transform = gp_Trsf()
+    transform.SetTransformation(rotation, translation)
 
-    return TopLoc_Location(transfo)
+    return TopLoc_Location(transform)
 
 
 def reduce_shape(shape: TopoDS_Shape) -> tuple:

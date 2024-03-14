@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 from typing import Union, Iterable
 from build123d.build_enums import Mode, Until, Kind, Side
@@ -44,13 +45,18 @@ from build123d.topology import (
     Vertex,
 )
 
-from build123d.build_common import logger, WorkplaneList, validate_inputs
+from build123d.build_common import (
+    logger,
+    WorkplaneList,
+    flatten_sequence,
+    validate_inputs,
+)
 
 
 def extrude(
     to_extrude: Union[Face, Sketch] = None,
     amount: float = None,
-    dir: VectorLike = None,
+    dir: VectorLike = None,  # pylint: disable=redefined-builtin
     until: Until = None,
     target: Union[Compound, Solid] = None,
     both: bool = False,
@@ -80,6 +86,7 @@ def extrude(
     Returns:
         Part: extruded object
     """
+    # pylint: disable=too-many-locals, too-many-branches
     context: BuildPart = BuildPart._get_context("extrude")
     validate_inputs(context, "extrude", to_extrude)
 
@@ -170,11 +177,11 @@ def extrude(
         if clean:
             new_solids = [solid.clean() for solid in new_solids]
 
-    return Part(Compound.make_compound(new_solids).wrapped)
+    return Part(ShapeList(new_solids).solids())
 
 
 def loft(
-    sections: Union[Face, Iterable[Face]] = None,
+    sections: Union[Face, Sketch, Iterable[Union[Vertex, Face, Sketch]]] = None,
     ruled: bool = False,
     clean: bool = True,
     mode: Mode = Mode.ADD,
@@ -184,17 +191,16 @@ def loft(
     Loft the pending sketches/faces, across all workplanes, into a solid.
 
     Args:
-        sections (Face): slices to loft into object. If not provided, pending_faces
-            will be used.
+        sections (Vertex, Face, Sketch): slices to loft into object. If not provided, pending_faces
+            will be used. If vertices are to be used, a vertex can be the first, last, or
+            first and last elements.
         ruled (bool, optional): discontiguous layer tangents. Defaults to False.
         clean (bool, optional): Remove extraneous internal structure. Defaults to True.
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
     """
     context: BuildPart = BuildPart._get_context("loft")
 
-    section_list = (
-        [*sections] if isinstance(sections, (list, tuple, filter)) else [sections]
-    )
+    section_list = flatten_sequence(sections)
     validate_inputs(context, "loft", section_list)
 
     if all([s is None for s in section_list]):
@@ -204,9 +210,32 @@ def loft(
         context.pending_faces = []
         context.pending_face_planes = []
     else:
-        loft_wires = [
-            face.outer_wire() for section in section_list for face in section.faces()
-        ]
+        if not any(isinstance(s, Vertex) for s in section_list):
+            loft_wires = [
+                face.outer_wire()
+                for section in section_list
+                for face in section.faces()
+            ]
+        elif any(isinstance(s, Vertex) for s in section_list) and any(
+            isinstance(s, (Face, Sketch)) for s in section_list
+        ):
+            if any(isinstance(s, Vertex) for s in section_list[1:-1]):
+                raise ValueError(
+                    "Vertices must be the first, last, or first and last elements"
+                )
+            loft_wires = []
+            for s in section_list:
+                if isinstance(s, Vertex):
+                    loft_wires.append(s)
+                elif isinstance(s, Face):
+                    loft_wires.append(s.outer_wire())
+                elif isinstance(s, Sketch):
+                    loft_wires.append(s.face().outer_wire())
+        elif all(isinstance(s, Vertex) for s in section_list):
+            raise ValueError(
+                "At least one face/sketch is required if vertices are the first, last, or first and last elements"
+            )
+
     new_solid = Solid.make_loft(loft_wires, ruled)
 
     # Try to recover an invalid loft
@@ -222,7 +251,7 @@ def loft(
     elif clean:
         new_solid = new_solid.clean()
 
-    return Part(Compound.make_compound([new_solid]).wrapped)
+    return Part(Compound([new_solid]).wrapped)
 
 
 def make_brake_formed(
@@ -263,6 +292,7 @@ def make_brake_formed(
     Returns:
         Part: sheet metal part
     """
+    # pylint: disable=too-many-locals, too-many-branches
     context: BuildPart = BuildPart._get_context("make_brake_formed")
     validate_inputs(context, "make_brake_formed")
 
@@ -281,9 +311,9 @@ def make_brake_formed(
     offset_vertices = offset_line.vertices()
 
     try:
-        plane = Plane(Face.make_from_wires(offset_line))
-    except:
-        raise ValueError("line not suitable - probably straight")
+        plane = Plane(Face(offset_line))
+    except Exception as exc:
+        raise ValueError("line not suitable - probably straight") from exc
 
     # Make edge pairs
     station_edges = ShapeList()
@@ -327,7 +357,7 @@ def make_brake_formed(
     elif clean:
         new_solid = new_solid.clean()
 
-    return Part(Compound.make_compound([new_solid]).wrapped)
+    return Part(Compound([new_solid]).wrapped)
 
 
 def project_workplane(
@@ -409,9 +439,8 @@ def revolve(
     """
     context: BuildPart = BuildPart._get_context("revolve")
 
-    profile_list = (
-        [*profiles] if isinstance(profiles, (list, tuple, filter)) else [profiles]
-    )
+    profile_list = flatten_sequence(profiles)
+
     validate_inputs(context, "revolve", profile_list)
 
     # Make sure we account for users specifying angles larger than 360 degrees, and
@@ -444,7 +473,7 @@ def revolve(
 
         new_solids.append(Solid.revolve(profile, angle, axis))
 
-    new_solid = Compound.make_compound(new_solids)
+    new_solid = Compound(new_solids)
     if context is not None:
         context._add_to_context(*new_solids, clean=clean, mode=mode)
     elif clean:
@@ -513,7 +542,7 @@ def section(
         if clean:
             new_objects = [r.clean() for r in new_objects]
 
-    return Sketch(Compound.make_compound(new_objects).wrapped)
+    return Sketch(Compound(new_objects).wrapped)
 
 
 def thicken(
@@ -588,4 +617,4 @@ def thicken(
         if clean:
             new_solids = [solid.clean() for solid in new_solids]
 
-    return Part(Compound.make_compound(new_solids).wrapped)
+    return Part(Compound(new_solids).wrapped)

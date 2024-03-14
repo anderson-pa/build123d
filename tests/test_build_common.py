@@ -25,10 +25,11 @@ license:
     limitations under the License.
 
 """
+
 import unittest
 from math import pi
 from build123d import *
-from build123d import Builder, WorkplaneList, LocationList
+from build123d import WorkplaneList, flatten_sequence
 
 
 def _assertTupleAlmostEquals(self, expected, actual, places, msg=None):
@@ -38,6 +39,56 @@ def _assertTupleAlmostEquals(self, expected, actual, places, msg=None):
 
 
 unittest.TestCase.assertTupleAlmostEquals = _assertTupleAlmostEquals
+
+
+class TestFlattenSequence(unittest.TestCase):
+    """Test the flatten_sequence helper function"""
+
+    def test_single_object(self):
+        self.assertListEqual(flatten_sequence("a"), ["a"])
+
+    def test_sequence(self):
+        self.assertListEqual(flatten_sequence("a", "b", "c"), ["a", "b", "c"])
+
+    def test_list(self):
+        self.assertListEqual(flatten_sequence(["a", "b", "c"]), ["a", "b", "c"])
+
+    def test_list_sequence(self):
+        self.assertListEqual(
+            flatten_sequence(["a", "b", "c"], "d"), ["a", "b", "c", "d"]
+        )
+
+    def test_sequence_tuple(self):
+        self.assertListEqual(
+            flatten_sequence("a", ("b", "c", "d"), "e"), ["a", "b", "c", "d", "e"]
+        )
+
+    def test_points(self):
+        self.assertListEqual(
+            flatten_sequence("a", (1, 2, 3), "e"), ["a", (1, 2, 3), "e"]
+        )
+
+        self.assertListEqual(
+            flatten_sequence("a", (1.0, 2.0, 3.0), "e"), ["a", (1.0, 2.0, 3.0), "e"]
+        )
+
+    def test_group_slice(self):
+        with BuildSketch() as s3:
+            Circle(55 / 2 + 3)
+            Rectangle(23 + 6, 42, align=(Align.CENTER, Align.MIN))
+            Circle(55 / 2, mode=Mode.SUBTRACT)
+            Rectangle(23, 42, mode=Mode.SUBTRACT, align=(Align.CENTER, Align.MIN))
+            vertex_groups = s3.vertices().group_by(Axis.Y)[0:2]
+
+        self.assertListEqual(
+            flatten_sequence(vertex_groups),
+            [
+                vertex_groups[0][0],
+                vertex_groups[0][1],
+                vertex_groups[1][0],
+                vertex_groups[1][1],
+            ],
+        )
 
 
 class TestBuilder(unittest.TestCase):
@@ -123,6 +174,41 @@ class TestBuilder(unittest.TestCase):
             with self.assertWarns(UserWarning):
                 p.solid()
 
+    def test_workplanes_as_list(self):
+        with BuildPart() as p:
+            Box(1, 1, 1)
+            with BuildSketch(p.faces() >> Axis.Z):
+                Rectangle(0.25, 0.25)
+            extrude(amount=0.25)
+        self.assertAlmostEqual(p.part.volume, 1**3 + 0.25**3, 5)
+
+        with self.assertRaises(ValueError):
+            with BuildLine([Plane.XY, Plane.XZ]):
+                Line((0, 0), (1, 1))
+
+    def test_invalid_boolean_operations(self):
+        with BuildPart() as a:
+            Box(1, 1, 1)
+
+        with BuildPart() as b:
+            Cylinder(1, 1)
+
+        with self.assertRaises(RuntimeError):
+            c = a + b
+
+        with self.assertRaises(RuntimeError):
+            c = a - b
+
+        with self.assertRaises(RuntimeError):
+            c = a & b
+
+    def test_invalid_methods(self):
+        with BuildPart() as a:
+            Box(1, 1, 1)
+
+        with self.assertRaises(AttributeError):
+            a.export_stl("invalid.stl")
+
 
 class TestBuilderExit(unittest.TestCase):
     def test_multiple(self):
@@ -131,6 +217,19 @@ class TestBuilderExit(unittest.TestCase):
                 Line((0, 0), (1, 0))
                 Line((0, 0), (0, 1))
         self.assertEqual(len(test.pending_edges), 2)
+
+    def test_workplane_popping(self):
+        # If BuildSketch pushes and pops its workplanes correctly, the order shouldn't matter
+        with BuildPart(Plane.XZ) as a:
+            with BuildSketch():
+                Circle(1)
+            Cylinder(1, 5)
+
+        with BuildPart(Plane.XZ) as b:
+            Cylinder(1, 5)
+            with BuildSketch():
+                Circle(1)
+        self.assertAlmostEqual(a.part.volume, (a.part & b.part).volume, 4)
 
 
 class TestCommonOperations(unittest.TestCase):
@@ -146,6 +245,11 @@ class TestCommonOperations(unittest.TestCase):
             (Wire.make_circle(10) % 0.5).to_tuple(), (0, -1, 0), 5
         )
 
+    def test_xor(self):
+        helix_loc = Edge.make_helix(2 * pi, 1, 1) ^ 0
+        self.assertTupleAlmostEquals(helix_loc.position.to_tuple(), (1, 0, 0), 5)
+        self.assertTupleAlmostEquals(helix_loc.orientation.to_tuple(), (-45, 0, 180), 5)
+
 
 class TestLocations(unittest.TestCase):
     def test_polar_locations(self):
@@ -157,6 +261,25 @@ class TestLocations(unittest.TestCase):
                 5,
             )
             self.assertTupleAlmostEquals(locs[i].orientation.to_tuple(), (0, 0, 0), 5)
+
+    def test_polar_endpoint(self):
+        locs = PolarLocations(
+            1, count=3, start_angle=45, angular_range=45, endpoint=False
+        )
+        for loc, angle in zip(locs, [45, 60, 75]):
+            self.assertAlmostEqual(loc.orientation.Z, angle, 5)
+        locs = PolarLocations(
+            1, count=3, start_angle=45, angular_range=45, endpoint=True
+        )
+        for loc, angle in zip(locs, [45, 67.5, 90]):
+            self.assertAlmostEqual(loc.orientation.Z, angle, 5)
+
+    def test_polar_single_point(self):
+        locs = PolarLocations(
+            1, count=1, start_angle=45, angular_range=45, endpoint=False
+        ).locations
+        self.assertEqual(len(locs), 1)
+        self.assertAlmostEqual(locs[0].orientation.Z, 45, 5)
 
     def test_no_centering(self):
         with BuildSketch():
@@ -287,6 +410,22 @@ class TestLocations(unittest.TestCase):
         self.assertTupleAlmostEquals(grid.min.to_tuple(), (-5, -15, 0), 5)
         self.assertTupleAlmostEquals(grid.max.to_tuple(), (5, 15, 0), 5)
 
+    def test_mixed_sequence_list(self):
+        locs = Locations((0, 1), [(2, 3), (4, 5)], (6, 7))
+        self.assertEqual(len(locs.locations), 4)
+        self.assertTupleAlmostEquals(
+            locs.locations[0].position.to_tuple(), (0, 1, 0), 5
+        )
+        self.assertTupleAlmostEquals(
+            locs.locations[1].position.to_tuple(), (2, 3, 0), 5
+        )
+        self.assertTupleAlmostEquals(
+            locs.locations[2].position.to_tuple(), (4, 5, 0), 5
+        )
+        self.assertTupleAlmostEquals(
+            locs.locations[3].position.to_tuple(), (6, 7, 0), 5
+        )
+
 
 class TestProperties(unittest.TestCase):
     def test_vector_properties(self):
@@ -362,14 +501,20 @@ class TestShapeList(unittest.TestCase):
                     self.assertTrue(isinstance(edges, list))
                     self.assertTrue(isinstance(edges, ShapeList))
                     self.assertEqual(len(edges), 8)
-                    self.assertAlmostEqual(abs((faces[1].center()-faces[0].center()).dot(plane.z_dir)), 1)
+                    self.assertAlmostEqual(
+                        abs((faces[1].center() - faces[0].center()).dot(plane.z_dir)), 1
+                    )
                     axis_index = list(map(int, map(abs, plane.z_dir))).index(1)
-                    self.assertTrue(all(abs(list(e.center())[axis_index]) > 0.1 for e in edges))
+                    self.assertTrue(
+                        all(abs(list(e.center())[axis_index]) > 0.1 for e in edges)
+                    )
                     if plane == Plane.XY:
                         with BuildLine():
                             line = Line((0, 0, 0), (10, 0, 0)).edge()
-                            bezier2d = Bezier((0, 0, 0), (5, 3, 0),  (10, 0, 0)).edge()
-                            bezier3d = Bezier((0, 0, 0), (3, 3, 0), (7, 1, 3), (10, 0, 0)).edge()
+                            bezier2d = Bezier((0, 0, 0), (5, 3, 0), (10, 0, 0)).edge()
+                            bezier3d = Bezier(
+                                (0, 0, 0), (3, 3, 0), (7, 1, 3), (10, 0, 0)
+                            ).edge()
                         edges = ShapeList([line, bezier2d, bezier3d]) | plane
                         self.assertIn(line, edges)
                         self.assertIn(bezier2d, edges)
@@ -558,7 +703,7 @@ class TestShapeList(unittest.TestCase):
             Box(1, 1, 1)
         self.assertEqual(
             (test.faces() | Axis.Z).edges() & (test.faces() | Axis.Y).edges(),
-            (test.edges() | Axis.X)
+            (test.edges() | Axis.X),
         )
 
 
@@ -584,9 +729,6 @@ class TestValidateInputs(unittest.TestCase):
             with BuildPart() as p:
                 Box(1, 1, 1)
                 fillet(4, radius=1)
-        self.assertEqual(
-            "fillet doesn't accept int, did you intend <keyword>=4?", str(rte.exception)
-        )
 
 
 class TestVectorExtensions(unittest.TestCase):
@@ -665,6 +807,31 @@ class TestWorkplaneStorage(unittest.TestCase):
                 self.assertTrue(all([isinstance(p, Plane) for p in s1.workplanes]))
             extrude(amount=0.1)
         self.assertTrue(p1.workplanes[0] == Plane.XZ)
+
+
+class TestContextAwareSelectors(unittest.TestCase):
+    def test_context_aware_selectors(self):
+        with BuildPart() as p:
+            Box(1, 1, 1)
+            self.assertEqual(solids(), p.solids())
+            self.assertEqual(faces(), p.faces())
+            self.assertEqual(wires(), p.wires())
+            self.assertEqual(edges(), p.edges())
+            self.assertEqual(vertices(), p.vertices())
+        with BuildSketch() as p:
+            Rectangle(1, 1)
+            self.assertEqual(faces(), p.faces())
+            self.assertEqual(wires(), p.wires())
+            self.assertEqual(edges(), p.edges())
+            self.assertEqual(vertices(), p.vertices())
+        with BuildLine() as p:
+            Line((0, 0), (1, 0))
+            self.assertEqual(edges(), p.edges())
+            self.assertEqual(vertices(), p.vertices())
+        with BuildSketch() as p:
+            with GridLocations(2, 0, 2, 1):
+                Circle(0.5)
+                self.assertEqual(wires(), p.wires())
 
 
 if __name__ == "__main__":

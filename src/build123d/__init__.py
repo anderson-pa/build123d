@@ -1,4 +1,5 @@
 """build123d import definitions"""
+
 from build123d.build_common import *
 from build123d.build_enums import *
 from build123d.build_line import *
@@ -15,10 +16,11 @@ from build123d.objects_sketch import *
 from build123d.operations_generic import *
 from build123d.operations_part import *
 from build123d.operations_sketch import *
+from build123d.pack import *
 from build123d.topology import *
 from build123d.drafting import *
 from build123d.persistence import modify_copyreg
-from build123d.drafting import *
+from build123d.exporters3d import *
 
 from .version import version as __version__
 
@@ -40,10 +42,12 @@ __all__ = [
     "ApproxOption",
     "AngularDirection",
     "CenterOf",
+    "Extrinsic",
     "FontStyle",
     "FrameMethod",
     "GeomType",
     "HeadType",
+    "Intrinsic",
     "Keep",
     "Kind",
     "LengthMode",
@@ -70,6 +74,7 @@ __all__ = [
     "BaseLineObject",
     "Bezier",
     "CenterArc",
+    "DoubleTangentArc",
     "EllipticalCenterArc",
     "EllipticalStartArc",
     "FilletPolyline",
@@ -104,6 +109,7 @@ __all__ = [
     "Text",
     "TechnicalDrawing",
     "Trapezoid",
+    "Triangle",
     # 3D Part Objects
     "BasePartObject",
     "CounterBoreHole",
@@ -138,6 +144,7 @@ __all__ = [
     "Plane",
     "Compound",
     "Location",
+    "LocationEncoder",
     "Joint",
     "RigidJoint",
     "RevoluteJoint",
@@ -159,16 +166,29 @@ __all__ = [
     "import_svg",
     "import_svg_as_buildline_code",
     # Other functions
-    "polar",
     "delta",
-    "new_edges",
     "edges_to_wires",
+    "new_edges",
+    "pack",
+    "polar",
+    # Context aware selectors
+    "solids",
+    "faces",
+    "wires",
+    "edges",
+    "vertices",
+    "solid",
+    "face",
+    "wire",
+    "edge",
+    "vertex",
     # Operations
     "add",
     "bounding_box",
     "chamfer",
     "extrude",
     "fillet",
+    "full_round",
     "loft",
     "make_brake_formed",
     "make_face",
@@ -185,4 +205,10 @@ __all__ = [
     "sweep",
     "thicken",
     "trace",
+    # Topology Exploration
+    "topo_explore_connected_edges",
+    "topo_explore_common_vertex",
+    # 3D Exporters
+    "export_step_alt",
+    "export_gltf",
 ]

@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 import math
 import unittest
 from datetime import date
@@ -101,7 +102,6 @@ def create_test_sketch() -> tuple[Sketch, Sketch, Sketch]:
 
 
 class TestClassInstantiation(unittest.TestCase):
-
     """Test Draft class instantiation"""
 
     def test_draft_instantiation(self):
@@ -297,9 +297,8 @@ class ExtensionLineTestCase(unittest.TestCase):
 
 class TestTechnicalDrawing(unittest.TestCase):
     def test_basic_drawing(self):
-        with BuildSketch() as drawing:
-            TechnicalDrawing(design_date=date(2023, 9, 17), sheet_number=1)
-        bbox = drawing.sketch.bounding_box()
+        drawing = TechnicalDrawing(design_date=date(2023, 9, 17), sheet_number=1)
+        bbox = drawing.bounding_box()
         self.assertGreater(bbox.size.X, 280)
         self.assertGreater(bbox.size.Y, 195)
         self.assertGreater(len(drawing.faces()), 110)

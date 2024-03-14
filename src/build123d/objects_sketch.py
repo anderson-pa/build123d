@@ -25,12 +25,15 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 
-from math import cos, pi, radians, sin, tan
-from typing import Union
+import trianglesolver
 
-from build123d.build_common import LocationList, validate_inputs
+from math import cos, degrees, pi, radians, sin, tan
+from typing import Iterable, Union
+
+from build123d.build_common import LocationList, flatten_sequence, validate_inputs
 from build123d.build_enums import Align, FontStyle, Mode
 from build123d.build_sketch import BuildSketch
 from build123d.geometry import Axis, Location, Rotation, Vector, VectorLike
@@ -61,18 +64,7 @@ class BaseSketchObject(Sketch):
     ):
         if align is not None:
             align = tuplify(align, 2)
-            bbox = obj.bounding_box()
-            align_offset = []
-            for i in range(2):
-                if align[i] == Align.MIN:
-                    align_offset.append(-bbox.min.to_tuple()[i])
-                elif align[i] == Align.CENTER:
-                    align_offset.append(
-                        -(bbox.min.to_tuple()[i] + bbox.max.to_tuple()[i]) / 2
-                    )
-                elif align[i] == Align.MAX:
-                    align_offset.append(-bbox.max.to_tuple()[i])
-            obj.move(Location(Vector(*align_offset)))
+            obj.move(Location(Vector(*obj.bounding_box().to_align_offset(align))))
 
         context: BuildSketch = BuildSketch._get_context(self, log=False)
         if context is None:
@@ -92,7 +84,7 @@ class BaseSketchObject(Sketch):
             if isinstance(context, BuildSketch):
                 context._add_to_context(*new_faces, mode=mode)
 
-        super().__init__(Compound.make_compound(new_faces).wrapped)
+        super().__init__(Compound(new_faces).wrapped)
 
 
 class Circle(BaseSketchObject):
@@ -121,7 +113,7 @@ class Circle(BaseSketchObject):
         self.radius = radius
         self.align = tuplify(align, 2)
 
-        face = Face.make_from_wires(Wire.make_circle(radius))
+        face = Face(Wire.make_circle(radius))
         super().__init__(face, 0, self.align, mode)
 
 
@@ -156,7 +148,7 @@ class Ellipse(BaseSketchObject):
         self.y_radius = y_radius
         self.align = tuplify(align, 2)
 
-        face = Face.make_from_wires(Wire.make_ellipse(x_radius, y_radius))
+        face = Face(Wire.make_ellipse(x_radius, y_radius))
         super().__init__(face, rotation, self.align, mode)
 
 
@@ -165,8 +157,14 @@ class Polygon(BaseSketchObject):
 
     Add polygon(s) defined by given sequence of points to sketch.
 
+    Note that the order of the points define the normal of the Face that is created in
+    Algebra mode, where counter clockwise order creates Faces with their normal being up
+    while a clockwise order will have a normal that is down.  In Builder mode, all Faces
+    added to the sketch are up.
+
     Args:
-        pts (VectorLike): sequence of points defining the vertices of polygon
+        pts (Union[VectorLike, Iterable[VectorLike]]): sequence of points defining the
+            vertices of the polygon
         rotation (float, optional): angles to rotate objects. Defaults to 0.
         align (Union[Align, tuple[Align, Align]], optional): align min, center, or max of object.
             Defaults to (Align.CENTER, Align.CENTER).
@@ -177,7 +175,7 @@ class Polygon(BaseSketchObject):
 
     def __init__(
         self,
-        *pts: VectorLike,
+        *pts: Union[VectorLike, Iterable[VectorLike]],
         rotation: float = 0,
         align: Union[Align, tuple[Align, Align]] = (Align.CENTER, Align.CENTER),
         mode: Mode = Mode.ADD,
@@ -185,11 +183,12 @@ class Polygon(BaseSketchObject):
         context = BuildSketch._get_context(self)
         validate_inputs(context, self)
 
+        pts = flatten_sequence(*pts)
         self.pts = pts
         self.align = tuplify(align, 2)
 
         poly_pts = [Vector(p) for p in pts]
-        face = Face.make_from_wires(Wire.make_polygon(poly_pts))
+        face = Face(Wire.make_polygon(poly_pts))
         super().__init__(face, rotation, self.align, mode)
 
 
@@ -224,7 +223,7 @@ class Rectangle(BaseSketchObject):
         self.rectangle_height = height
         self.align = tuplify(align, 2)
 
-        face = Face.make_rect(height, width)
+        face = Face.make_rect(width, height)
         super().__init__(face, rotation, self.align, mode)
 
 
@@ -264,7 +263,7 @@ class RectangleRounded(BaseSketchObject):
         self.radius = radius
         self.align = tuplify(align, 2)
 
-        face = Face.make_rect(height, width)
+        face = Face.make_rect(width, height)
         face = face.fillet_2d(radius, face.vertices())
         super().__init__(face, rotation, align, mode)
 
@@ -298,6 +297,7 @@ class RegularPolygon(BaseSketchObject):
         align: tuple[Align, Align] = (Align.CENTER, Align.CENTER),
         mode: Mode = Mode.ADD,
     ):
+        # pylint: disable=too-many-locals
         context = BuildSketch._get_context(self)
         validate_inputs(context, self)
 
@@ -344,7 +344,7 @@ class RegularPolygon(BaseSketchObject):
             align_offset = [0, 0]
         pts = [point + Vector(*align_offset) for point in pts]
 
-        face = Face.make_from_wires(Wire.make_polygon(pts))
+        face = Face(Wire.make_polygon(pts))
         super().__init__(face, rotation=0, align=None, mode=mode)
 
 
@@ -375,8 +375,8 @@ class SlotArc(BaseSketchObject):
         self.arc = arc
         self.slot_height = height
 
-        arc = arc if isinstance(arc, Wire) else Wire.make_wire([arc])
-        face = Face.make_from_wires(arc.offset_2d(height / 2)).rotate(Axis.Z, rotation)
+        arc = arc if isinstance(arc, Wire) else Wire([arc])
+        face = Face(arc.offset_2d(height / 2)).rotate(Axis.Z, rotation)
         super().__init__(face, rotation, None, mode)
 
 
@@ -415,7 +415,7 @@ class SlotCenterPoint(BaseSketchObject):
         self.slot_height = height
 
         half_line = point_v - center_v
-        face = Face.make_from_wires(
+        face = Face(
             Wire.combine(
                 [
                     Edge.make_line(point_v, center_v),
@@ -454,8 +454,8 @@ class SlotCenterToCenter(BaseSketchObject):
         self.center_separation = center_separation
         self.slot_height = height
 
-        face = Face.make_from_wires(
-            Wire.make_wire(
+        face = Face(
+            Wire(
                 [
                     Edge.make_line(Vector(-center_separation / 2, 0, 0), Vector()),
                     Edge.make_line(Vector(), Vector(+center_separation / 2, 0, 0)),
@@ -495,14 +495,17 @@ class SlotOverall(BaseSketchObject):
         self.width = width
         self.slot_height = height
 
-        face = Face.make_from_wires(
-            Wire.make_wire(
-                [
-                    Edge.make_line(Vector(-width / 2 + height / 2, 0, 0), Vector()),
-                    Edge.make_line(Vector(), Vector(+width / 2 - height / 2, 0, 0)),
-                ]
-            ).offset_2d(height / 2)
-        )
+        if width != height:
+            face = Face(
+                Wire(
+                    [
+                        Edge.make_line(Vector(-width / 2 + height / 2, 0, 0), Vector()),
+                        Edge.make_line(Vector(), Vector(+width / 2 - height / 2, 0, 0)),
+                    ]
+                ).offset_2d(height / 2)
+            )
+        else:
+            face = Circle(width / 2, mode=mode).face()
         super().__init__(face, rotation, align, mode)
 
 
@@ -526,6 +529,7 @@ class Text(BaseSketchObject):
         mode (Mode, optional): combination mode. Defaults to Mode.ADD.
     """
 
+    # pylint: disable=too-many-instance-attributes
     _applies_to = [BuildSketch._tag]
 
     def __init__(
@@ -618,13 +622,97 @@ class Trapezoid(BaseSketchObject):
         reduction_right = (
             0 if right_side_angle == 90 else height / tan(radians(right_side_angle))
         )
-        if reduction_left + reduction_right >= width:
+
+        top_width_left = width / 2
+        top_width_right = width / 2
+        bot_width_left = width / 2
+        bot_width_right = width / 2
+
+        if reduction_left > 0:
+            top_width_left -= reduction_left
+        else:
+            bot_width_left += reduction_left
+
+        if reduction_right > 0:
+            top_width_right -= reduction_right
+        else:
+            bot_width_right += reduction_right
+
+        if (bot_width_left + bot_width_right) < 0:
+            raise ValueError("Trapezoid bottom invalid - change angles")
+        if (top_width_left + top_width_right) < 0:
             raise ValueError("Trapezoid top invalid - change angles")
+
         pts = []
-        pts.append(Vector(-width / 2, -height / 2))
-        pts.append(Vector(width / 2, -height / 2))
-        pts.append(Vector(width / 2 - reduction_right, height / 2))
-        pts.append(Vector(-width / 2 + reduction_left, height / 2))
+        pts.append(Vector(-bot_width_left, -height / 2))
+        pts.append(Vector(bot_width_right, -height / 2))
+        pts.append(Vector(top_width_right, height / 2))
+        pts.append(Vector(-top_width_left, height / 2))
         pts.append(pts[0])
-        face = Face.make_from_wires(Wire.make_polygon(pts))
+        face = Face(Wire.make_polygon(pts))
         super().__init__(face, rotation, self.align, mode)
+
+
+class Triangle(BaseSketchObject):
+    """Sketch Object: Triangle
+
+    Add any triangle to the sketch by specifying the length of any side and any
+    two other side lengths or interior angles. Note that the interior angles are
+    opposite the side with the same designation (i.e. side 'a' is opposite angle 'A').
+
+    Args:
+        a (float, optional): side 'a' length. Defaults to None.
+        b (float, optional): side 'b' length. Defaults to None.
+        c (float, optional): side 'c' length. Defaults to None.
+        A (float, optional): interior angle 'A' in degrees. Defaults to None.
+        B (float, optional): interior angle 'B' in degrees. Defaults to None.
+        C (float, optional): interior angle 'C' in degrees. Defaults to None.
+        rotation (float, optional): angles to rotate objects. Defaults to 0.
+        align (Union[Align, tuple[Align, Align]], optional): align min, center, or max of object.
+            Defaults to None.
+        mode (Mode, optional): combination mode. Defaults to Mode.ADD.
+
+    Raises:
+        ValueError: One length and two other values were not provided
+    """
+
+    _applies_to = [BuildSketch._tag]
+
+    def __init__(
+        self,
+        *,
+        a: float = None,
+        b: float = None,
+        c: float = None,
+        A: float = None,
+        B: float = None,
+        C: float = None,
+        align: Union[None, Align, tuple[Align, Align]] = None,
+        rotation: float = 0,
+        mode: Mode = Mode.ADD,
+    ):
+        context = BuildSketch._get_context(self)
+        validate_inputs(context, self)
+
+        if [v is None for v in [a, b, c]].count(True) == 3 or [
+            v is None for v in [a, b, c, A, B, C]
+        ].count(True) != 3:
+            raise ValueError("One length and two other values must be provided")
+
+        A, B, C = (radians(angle) if angle is not None else None for angle in [A, B, C])
+        a, b, c, A, B, C = trianglesolver.solve(a, b, c, A, B, C)
+        self.a = a  #: length of side 'a'
+        self.b = b  #: length of side 'b'
+        self.c = c  #: length of side 'c'
+        self.A = degrees(A)  #: interior angle 'A' in degrees
+        self.B = degrees(B)  #: interior angle 'B' in degrees
+        self.C = degrees(C)  #: interior angle 'C' in degrees
+        triangle = Face(
+            Wire.make_polygon(
+                [Vector(0, 0), Vector(a, 0), Vector(c, 0).rotate(Axis.Z, self.B)]
+            )
+        )
+        center_of_geometry = sum(Vector(v) for v in triangle.vertices()) / 3
+        triangle.move(Location(-center_of_geometry))
+        alignment = None if align is None else tuplify(align, 2)
+        super().__init__(obj=triangle, rotation=rotation, align=alignment, mode=mode)

@@ -6,7 +6,7 @@ by:   Gumyr
 date: Aug 9th 2023
 
 desc:
-    This module provides the Mesher class that implements exporting and importing 
+    This module provides the Mesher class that implements exporting and importing
     both 3MF and STL mesh files.  It uses the 3MF Consortium's Lib3MF library
     (see https://github.com/3MFConsortium/lib3mf).
 
@@ -78,10 +78,13 @@ license:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 # pylint has trouble with the OCP imports
 # pylint: disable=no-name-in-module, import-error
 import copy
 import ctypes
+import itertools
+import math
 import os
 import sys
 import uuid
@@ -95,15 +98,21 @@ from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeSolid,
     BRepBuilderAPI_Sewing,
 )
+from OCP.BRepGProp import BRepGProp
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.gp import gp_Pnt
 import OCP.TopAbs as ta
+from OCP.GProp import GProp_GProps
+from OCP.ShapeFix import ShapeFix_Shape
+from OCP.TopAbs import TopAbs_ShapeEnum
+from OCP.TopExp import TopExp_Explorer
+from OCP.TopoDS import TopoDS_Compound
 from OCP.TopLoc import TopLoc_Location
 
 from py_lib3mf import Lib3MF
 from build123d.build_enums import MeshType, Unit
-from build123d.geometry import Color, Vector
-from build123d.topology import Compound, Shape, Shell, Solid, downcast
+from build123d.geometry import Color, TOLERANCE, Vector
+from build123d.topology import Compound, Face, Shape, Shell, Solid, downcast
 
 
 class Mesher:
@@ -188,7 +197,7 @@ class Mesher:
             name_space (str): categorizer of different metadata entries
             name (str): metadata label
             value (str): metadata content
-            metadata_type (str): metadata trype
+            metadata_type (str): metadata type
             must_preserve (bool): metadata must not be removed if unused
         """
         # Get an existing meta data group if there is one
@@ -267,7 +276,7 @@ class Mesher:
             theLinDeflection=linear_deflection,
             isRelative=True,
             theAngDeflection=angular_deflection,
-            isInParallel=False,
+            isInParallel=True,
         )
 
         ocp_mesh_vertices = []
@@ -297,6 +306,13 @@ class Mesher:
         ocp_mesh_vertices: list[tuple[float, float, float]],
         triangles: list[list[int, int, int]],
     ):
+        # Round off the vertices to avoid vertices within tolerance being
+        # considered as different vertices
+        digits = -int(round(math.log(TOLERANCE, 10), 1))
+        ocp_mesh_vertices = [
+            (round(x, digits), round(y, digits), round(z, digits))
+            for x, y, z in ocp_mesh_vertices
+        ]
         """Create the data to create a 3mf mesh"""
         # Create a lookup table of face vertex to shape vertex
         unique_vertices = list(set(ocp_mesh_vertices))
@@ -306,11 +322,9 @@ class Mesher:
 
         # Create vertex list of 3MF positions
         vertices_3mf = []
-        gp_pnts = []
         for pnt in unique_vertices:
             c_array = (ctypes.c_float * 3)(*pnt)
             vertices_3mf.append(Lib3MF.Position(c_array))
-            gp_pnts.append(gp_Pnt(*pnt))
             # mesh_3mf.AddVertex  Should AddVertex be used to save memory?
 
         # Create triangle point list
@@ -367,7 +381,7 @@ class Mesher:
             part_number (str, optional): part #. Defaults to None.
             uuid_value (uuid, optional): value from uuid package. Defaults to None.
 
-        Rasises:
+        Raises:
             RuntimeError: 3mf mesh is invalid
             Warning: Degenerate shape skipped
             Warning: 3mf mesh is not manifold
@@ -446,17 +460,29 @@ class Mesher:
             # Create the triangular face using the polygon
             polygon_builder = BRepBuilderAPI_MakePolygon(*ocp_vertices, Close=True)
             face_builder = BRepBuilderAPI_MakeFace(polygon_builder.Wire())
-            # Add new Face to Shell
-            shell_builder.Add(face_builder.Face())
+            facet = face_builder.Face()
+            facet_properties = GProp_GProps()
+            BRepGProp.SurfaceProperties_s(facet, facet_properties)
+            if facet_properties.Mass() != 0:  # Area==0 is an invalid facet
+                shell_builder.Add(facet)
 
-        # Create the Shell
+        # Create the Shell(s) - if the object has voids there will be multiple
         shell_builder.Perform()
-        occ_shell = downcast(shell_builder.SewedShape())
+        occ_sewed_shape = downcast(shell_builder.SewedShape())
+
+        if isinstance(occ_sewed_shape, TopoDS_Compound):
+            occ_shells = []
+            explorer = TopExp_Explorer(occ_sewed_shape, TopAbs_ShapeEnum.TopAbs_SHELL)
+            while explorer.More():
+                occ_shells.append(downcast(explorer.Current()))
+                explorer.Next()
+        else:
+            occ_shells = [occ_sewed_shape]
 
         # Create a solid if manifold
-        shape_obj = Shell(occ_shell)
+        shape_obj = Shell(occ_sewed_shape)
         if shape_obj.is_manifold:
-            solid_builder = BRepBuilderAPI_MakeSolid(occ_shell)
+            solid_builder = BRepBuilderAPI_MakeSolid(*occ_shells)
             shape_obj = Solid(solid_builder.Solid())
 
         return shape_obj

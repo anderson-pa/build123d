@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 
 from typing import Union
@@ -81,9 +82,8 @@ class BuildSketch(Builder):
         )
         global_objs = []
         for plane in workplanes:
-            for face in self._obj.faces():
-                global_objs.append(plane.from_local_coords(face))
-        return Sketch(Compound.make_compound(global_objs).wrapped)
+            global_objs.append(plane.from_local_coords(self._obj))
+        return Sketch(Compound(global_objs).wrapped)
 
     def __init__(
         self,
@@ -108,6 +108,8 @@ class BuildSketch(Builder):
         wires = Wire.combine(self.pending_edges)
         return wires if len(wires) > 1 else wires[0]
 
-    def _add_to_pending(self, *objects: Edge):
+    def _add_to_pending(self, *objects: Edge, face_plane: Plane = None):
         """Integrate a sequence of objects into existing builder object"""
+        if face_plane:
+            raise NotImplementedError("face_plane arg not supported for this method")
         self.pending_edges.extend(objects)

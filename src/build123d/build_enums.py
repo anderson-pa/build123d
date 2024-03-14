@@ -25,6 +25,7 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 from enum import Enum, auto
 
@@ -72,6 +73,27 @@ class CenterOf(Enum):
         return f"<{self.__class__.__name__}.{self.name}>"
 
 
+class Extrinsic(Enum):
+    """Order to apply extrinsic rotations by axis"""
+
+    XYZ = auto()
+    XZY = auto()
+    YZX = auto()
+    YXZ = auto()
+    ZXY = auto()
+    ZYX = auto()
+
+    XYX = auto()
+    XZX = auto()
+    YZY = auto()
+    YXY = auto()
+    ZXZ = auto()
+    ZYZ = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
 class FrameMethod(Enum):
     """Moving frame calculation method"""
 
@@ -112,6 +134,27 @@ class HeadType(Enum):
     STRAIGHT = auto()
     CURVED = auto()
     FILLETED = auto()
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self.name}>"
+
+
+class Intrinsic(Enum):
+    """Order to apply intrinsic rotations by axis"""
+
+    XYZ = auto()
+    XZY = auto()
+    YZX = auto()
+    YXZ = auto()
+    ZXY = auto()
+    ZYX = auto()
+
+    XYX = auto()
+    XZX = auto()
+    YZY = auto()
+    YXY = auto()
+    ZXZ = auto()
+    ZYZ = auto()
 
     def __repr__(self):
         return f"<{self.__class__.__name__}.{self.name}>"

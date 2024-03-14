@@ -38,6 +38,7 @@ license:
     limitations under the License.
 
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -45,11 +46,12 @@ import inspect
 import logging
 import sys
 import warnings
+import functools
 from abc import ABC, abstractmethod
 from itertools import product
 from math import sqrt
-from typing import Callable, Iterable, Optional, Union
-from typing_extensions import Self
+from typing import Any, Callable, Iterable, Optional, Union, TypeVar
+from typing_extensions import Self, ParamSpec, Concatenate
 
 from build123d.build_enums import Align, Mode, Select
 from build123d.geometry import Axis, Location, Plane, Vector, VectorLike
@@ -68,6 +70,8 @@ from build123d.topology import (
     tuplify,
     new_edges,
 )
+
+# pylint: disable=too-many-lines
 
 # Create a build123d logger to distinguish these logs from application logs.
 # If the user doesn't configure logging, all build123d logs will be discarded.
@@ -100,12 +104,39 @@ G = 1
 KG = 1000 * G
 LB = 453.59237 * G
 
+
+def _is_point(obj):
+    """Identify points as tuples of numbers"""
+    return isinstance(obj, tuple) and all(
+        isinstance(item, (int, float)) for item in obj
+    )
+
+
+T = TypeVar("T", Any, list[Any])
+
+
+def flatten_sequence(*obj: T) -> list[Any]:
+    """Convert a sequence of object potentially containing iterables into a flat list"""
+
+    flat_list = []
+    for item in obj:
+        # Note: an Iterable can't be used here as it will match with Vector & Vertex
+        # and break them into a list of floats.
+        if isinstance(item, (list, tuple, filter, set)) and not _is_point(item):
+            flat_list.extend(flatten_sequence(*item))
+        else:
+            flat_list.append(item)
+
+    return flat_list
+
+
 operations_apply_to = {
     "add": ["BuildPart", "BuildSketch", "BuildLine"],
     "bounding_box": ["BuildPart", "BuildSketch", "BuildLine"],
     "chamfer": ["BuildPart", "BuildSketch", "BuildLine"],
     "extrude": ["BuildPart"],
     "fillet": ["BuildPart", "BuildSketch", "BuildLine"],
+    "full_round": ["BuildSketch"],
     "loft": ["BuildPart"],
     "make_brake_formed": ["BuildPart"],
     "make_face": ["BuildSketch"],
@@ -138,6 +169,8 @@ class Builder(ABC):
         builder_parent (Builder): build to pass objects to on exit
 
     """
+
+    # pylint: disable=too-many-instance-attributes
 
     # Context variable used to by Objects and Operations to link to current builder instance
     _current: contextvars.ContextVar["Builder"] = contextvars.ContextVar(
@@ -173,7 +206,8 @@ class Builder(ABC):
         mode: Mode = Mode.ADD,
     ):
         self.mode = mode
-        self.workplanes = WorkplaneList._convert_to_planes(workplanes)
+        planes = WorkplaneList._convert_to_planes(workplanes)
+        self.workplanes = planes if planes else [Plane.XY]
         self._reset_tok = None
         current_frame = inspect.currentframe()
         assert current_frame is not None
@@ -203,7 +237,6 @@ class Builder(ABC):
             self.builder_parent = Builder._get_context()
         else:
             self.builder_parent = None
-            self.workplanes = self.workplanes if self.workplanes else [Plane.XY]
 
         self._reset_tok = self._current.set(self)
 
@@ -300,6 +333,10 @@ class Builder(ABC):
             ValueError: Nothing to intersect with
             ValueError: Nothing to intersect with
         """
+        # pylint: disable=too-many-locals
+        # pylint: disable=too-many-branches
+        # pylint: disable=too-many-statements
+
         self.obj_before = self._obj
         self.to_combine = list(objects)
         if mode != Mode.PRIVATE and len(objects) > 0:
@@ -309,7 +346,7 @@ class Builder(ABC):
                 typed[cls] = [obj for obj in objects if isinstance(obj, cls)]
 
             # Check for invalid inputs
-            num_stored = sum([len(t) for t in typed.values()])
+            num_stored = sum(len(t) for t in typed.values())
             # Generate an exception if not processing exceptions
             if len(objects) != num_stored and not sys.exc_info()[1]:
                 unsupported = set(objects) - set(v for l in typed.values() for v in l)
@@ -324,31 +361,31 @@ class Builder(ABC):
             # Align sketch planar faces with Plane.XY
             if self._tag == "BuildSketch":
                 aligned = []
-                face: Face
-                for face in typed[Face]:
-                    if not face.is_coplanar(Plane.XY):
+                new_face: Face
+                for new_face in typed[Face]:
+                    if not new_face.is_coplanar(Plane.XY):
                         # Try to keep the x direction, if not allow it to be assigned automatically
                         try:
                             plane = Plane(
                                 origin=(0, 0, 0),
                                 x_dir=(1, 0, 0),
-                                z_dir=face.normal_at(),
+                                z_dir=new_face.normal_at(),
                             )
                         except:
-                            plane = Plane(origin=(0, 0, 0), z_dir=face.normal_at())
+                            plane = Plane(origin=(0, 0, 0), z_dir=new_face.normal_at())
 
-                        face = plane.to_local_coords(face)
-                        face.move(Location((0, 0, -face.center().Z)))
-                    if face.normal_at().Z > 0:  # Flip the face if up-side-down
-                        aligned.append(face)
+                        new_face = plane.to_local_coords(new_face)
+                        new_face.move(Location((0, 0, -new_face.center().Z)))
+                    if new_face.normal_at().Z > 0:  # Flip the face if up-side-down
+                        aligned.append(new_face)
                     else:
-                        aligned.append(-face)
+                        aligned.append(-new_face)
                 typed[Face] = aligned
 
             # Convert wires to edges
-            wire: Wire
-            for wire in typed[Wire]:
-                typed[Edge].extend(wire.edges())
+            new_wire: Wire
+            for new_wire in typed[Wire]:
+                typed[Edge].extend(new_wire.edges())
 
             # Allow faces to be combined with solids for section operations
             if not faces_to_pending:
@@ -386,7 +423,7 @@ class Builder(ABC):
                         raise RuntimeError("Nothing to intersect with")
                     self._obj = self._obj.intersect(*typed[self._shape])
                 elif mode == Mode.REPLACE:
-                    self._obj = Compound.make_compound(list(typed[self._shape]))
+                    self._obj = Compound(list(typed[self._shape]))
 
                 if self._obj is not None and clean:
                     self._obj = self._obj.clean()
@@ -417,17 +454,13 @@ class Builder(ABC):
                 if isinstance(self._obj, Compound):
                     self._obj = self._sub_class(self._obj.wrapped)
                 else:
-                    self._obj = self._sub_class(
-                        Compound.make_compound(self._shapes()).wrapped
-                    )
+                    self._obj = self._sub_class(Compound(self._shapes()).wrapped)
 
             # Add to pending
             if self._tag == "BuildPart":
                 self._add_to_pending(*typed[Edge])
                 for plane in WorkplaneList._get_context().workplanes:
-                    global_faces = [
-                        plane.from_local_coords(face) for face in typed[Face]
-                    ]
+                    global_faces = [plane.from_local_coords(f) for f in typed[Face]]
                     self._add_to_pending(*global_faces, face_plane=plane)
             elif self._tag == "BuildSketch":
                 self._add_to_pending(*typed[Edge])
@@ -447,8 +480,8 @@ class Builder(ABC):
         """
         vertex_list: list[Vertex] = []
         if select == Select.ALL:
-            for edge in self._obj.edges():
-                vertex_list.extend(edge.vertices())
+            for obj_edge in self._obj.edges():
+                vertex_list.extend(obj_edge.vertices())
         elif select == Select.LAST:
             vertex_list = self.lasts[Vertex]
         elif select == Select.NEW:
@@ -470,11 +503,11 @@ class Builder(ABC):
         Returns:
             Vertex: Vertex extracted
         """
-        vertices = self.vertices(select)
-        vertex_count = len(vertices)
+        all_vertices = self.vertices(select)
+        vertex_count = len(all_vertices)
         if vertex_count != 1:
             warnings.warn(f"Found {vertex_count} vertices, returning first")
-        return vertices[0]
+        return all_vertices[0]
 
     def edges(self, select: Select = Select.ALL) -> ShapeList[Edge]:
         """Return Edges
@@ -510,11 +543,11 @@ class Builder(ABC):
         Returns:
             Edge: Edge extracted
         """
-        edges = self.edges(select)
-        edge_count = len(edges)
+        all_edges = self.edges(select)
+        edge_count = len(all_edges)
         if edge_count != 1:
             warnings.warn(f"Found {edge_count} edges, returning first")
-        return edges[0]
+        return all_edges[0]
 
     def wires(self, select: Select = Select.ALL) -> ShapeList[Wire]:
         """Return Wires
@@ -550,11 +583,11 @@ class Builder(ABC):
         Returns:
             Wire: Wire extracted
         """
-        wires = self.wires(select)
-        wire_count = len(wires)
+        all_wires = self.wires(select)
+        wire_count = len(all_wires)
         if wire_count != 1:
             warnings.warn(f"Found {wire_count} wires, returning first")
-        return wires[0]
+        return all_wires[0]
 
     def faces(self, select: Select = Select.ALL) -> ShapeList[Face]:
         """Return Faces
@@ -590,12 +623,11 @@ class Builder(ABC):
         Returns:
             Face: Face extracted
         """
-        faces = self.faces(select)
-        face_count = len(faces)
+        all_faces = self.faces(select)
+        face_count = len(all_faces)
         if face_count != 1:
-            msg = f"Found {face_count} faces, returning first"
-            warnings.warn(msg)
-        return faces[0]
+            warnings.warn(f"Found {face_count} faces, returning first")
+        return all_faces[0]
 
     def solids(self, select: Select = Select.ALL) -> ShapeList[Solid]:
         """Return Solids
@@ -631,11 +663,11 @@ class Builder(ABC):
         Returns:
             Solid: Solid extracted
         """
-        solids = self.solids(select)
-        solid_count = len(solids)
+        all_solids = self.solids(select)
+        solid_count = len(all_solids)
         if solid_count != 1:
             warnings.warn(f"Found {solid_count} solids, returning first")
-        return solids[0]
+        return all_solids[0]
 
     def _shapes(self, obj_type: Union[Vertex, Edge, Face, Solid] = None) -> ShapeList:
         """Extract Shapes"""
@@ -692,6 +724,33 @@ class Builder(ABC):
                     f"{operation} doesn't accept {type(obj).__name__},"
                     f" did you intend <keyword>={obj}?"
                 )
+
+    def _invalid_combine(self):
+        """Raise an error for invalid boolean combine operations"""
+        raise RuntimeError(
+            f"{self.__class__.__name__} is a builder of Shapes and can't be "
+            f"combined. The object being constructed is accessible via the "
+            f"'{self._obj_name}' attribute."
+        )
+
+    def __add__(self, _other) -> Self:
+        """Invalid add"""
+        self._invalid_combine()
+
+    def __sub__(self, _other) -> Self:
+        """Invalid sub"""
+        self._invalid_combine()
+
+    def __and__(self, _other) -> Self:
+        """Invalid and"""
+        self._invalid_combine()
+
+    def __getattr__(self, name):
+        """The user is likely trying to reference the builder's object"""
+        raise AttributeError(
+            f"'{self.__class__.__name__}' has no attribute '{name}'. "
+            f"Did you intend '<{self.__class__.__name__}>.{self._obj_name}.{name}'?"
+        )
 
 
 def validate_inputs(
@@ -800,7 +859,7 @@ class HexLocations(LocationList):
         align (Union[Align, tuple[Align, Align]], optional): align min, center, or max of object.
             Defaults to (Align.CENTER, Align.CENTER).
 
-    Atributes:
+    Attributes:
         apothem (float): radius of the inscribed circle
         xCount (int): number of points ( > 0 )
         yCount (int): number of points ( > 0 )
@@ -819,6 +878,8 @@ class HexLocations(LocationList):
         y_count: int,
         align: Union[Align, tuple[Align, Align]] = (Align.CENTER, Align.CENTER),
     ):
+        # pylint: disable=too-many-locals
+
         diagonal = 4 * apothem / sqrt(3)
         x_spacing = 3 * diagonal / 4
         y_spacing = diagonal * sqrt(3) / 2
@@ -870,7 +931,9 @@ class HexLocations(LocationList):
         # Convert to locations and store the reference plane
         local_locations = [Location(point) for point in points]
 
-        self.local_locations = Locations._move_to_existing(local_locations)
+        self.local_locations = Locations._move_to_existing(
+            local_locations
+        )  #: values independent of workplanes
 
         super().__init__(self.local_locations)
 
@@ -886,8 +949,10 @@ class PolarLocations(LocationList):
         start_angle (float, optional): angle to first point from +ve X axis. Defaults to 0.0.
         angular_range (float, optional): magnitude of array from start angle. Defaults to 360.0.
         rotate (bool, optional): Align locations with arc tangents. Defaults to True.
+        endpoint (bool, optional): If True, `start_angle` + `angular_range` is the last sample.
+            Otherwise, it is not included. Defaults to False.
 
-    Atributes:
+    Attributes:
         local_locations (list{Location}): locations relative to workplane
 
     Raises:
@@ -901,11 +966,14 @@ class PolarLocations(LocationList):
         start_angle: float = 0.0,
         angular_range: float = 360.0,
         rotate: bool = True,
+        endpoint: bool = False,
     ):
         if count < 1:
             raise ValueError(f"At least 1 elements required, requested {count}")
-
-        angle_step = angular_range / count
+        if count == 1:
+            angle_step = 0
+        else:
+            angle_step = angular_range / (count - int(endpoint))
 
         # Note: rotate==False==0 so the location orientation doesn't change
         local_locations = []
@@ -918,7 +986,9 @@ class PolarLocations(LocationList):
                 )
             )
 
-        self.local_locations = Locations._move_to_existing(local_locations)
+        self.local_locations = Locations._move_to_existing(
+            local_locations
+        )  #: values independent of workplanes
 
         super().__init__(self.local_locations)
 
@@ -929,16 +999,28 @@ class Locations(LocationList):
     Creates a context of locations for Part or Sketch
 
     Args:
-        pts (Union[VectorLike, Vertex, Location]): sequence of points to push
+        pts (Union[VectorLike, Vertex, Location, Face, Plane, Axis] or iterable of same):
+            sequence of points to push
 
-    Atributes:
+    Attributes:
         local_locations (list{Location}): locations relative to workplane
 
     """
 
-    def __init__(self, *pts: Union[VectorLike, Vertex, Location, Face, Plane, Axis]):
+    def __init__(
+        self,
+        *pts: Union[
+            VectorLike,
+            Vertex,
+            Location,
+            Face,
+            Plane,
+            Axis,
+            Iterable[VectorLike, Vertex, Location, Face, Plane, Axis],
+        ],
+    ):
         local_locations = []
-        for point in pts:
+        for point in flatten_sequence(*pts):
             if isinstance(point, Location):
                 local_locations.append(point)
             elif isinstance(point, Vector):
@@ -956,7 +1038,9 @@ class Locations(LocationList):
             else:
                 raise ValueError(f"Locations doesn't accept type {type(point)}")
 
-        self.local_locations = Locations._move_to_existing(local_locations)
+        self.local_locations = Locations._move_to_existing(
+            local_locations
+        )  #: values independent of workplanes
         super().__init__(self.local_locations)
 
     @staticmethod
@@ -973,17 +1057,9 @@ class Locations(LocationList):
             list[Location]: group of locations moved to existing locations as a group
         """
         location_group = []
-        if LocationList._get_context():
-            local_vertex_compound = Compound.make_compound(
-                [Face.make_rect(1, 1).locate(l) for l in local_locations]
-            )
+        if LocationList._get_context() is not None:
             for group_center in LocationList._get_context().local_locations:
-                location_group.extend(
-                    [
-                        v.location
-                        for v in local_vertex_compound.moved(group_center).faces()
-                    ]
-                )
+                location_group.extend([group_center * l for l in local_locations])
         else:
             location_group = local_locations
         return location_group
@@ -1014,6 +1090,8 @@ class GridLocations(LocationList):
     Raises:
         ValueError: Either x or y count must be greater than or equal to one.
     """
+
+    # pylint: disable=too-many-instance-attributes
 
     def __init__(
         self,
@@ -1060,7 +1138,9 @@ class GridLocations(LocationList):
                 )
             )
 
-        self.local_locations = Locations._move_to_existing(local_locations)
+        self.local_locations = Locations._move_to_existing(
+            local_locations
+        )  #: values independent of workplanes
         self.planes: list[Plane] = []
         super().__init__(self.local_locations)
 
@@ -1093,6 +1173,7 @@ class WorkplaneList:
     @staticmethod
     def _convert_to_planes(objs: Iterable[Union[Face, Plane, Location]]) -> list[Plane]:
         """Translate objects to planes"""
+        objs = flatten_sequence(*objs)
         planes = []
         for obj in objs:
             if isinstance(obj, Plane):
@@ -1171,6 +1252,37 @@ class WorkplaneList:
         return result
 
 
+P = ParamSpec("P")
+
+
+def __gen_context_component_getter(
+    func: Callable[Concatenate[Builder, P], T]
+) -> Callable[P, T]:
+    @functools.wraps(func)
+    def getter(select: Select = Select.ALL):
+        context = Builder._get_context(func.__name__)
+        if not context:
+            raise RuntimeError(
+                f"{func.__name__}() requires a Builder context to be in scope"
+            )
+        return func(context, select)
+
+    return getter
+
+
+vertices = __gen_context_component_getter(Builder.vertices)
+edges = __gen_context_component_getter(Builder.edges)
+wires = __gen_context_component_getter(Builder.wires)
+faces = __gen_context_component_getter(Builder.faces)
+solids = __gen_context_component_getter(Builder.solids)
+
+vertex = __gen_context_component_getter(Builder.vertex)
+edge = __gen_context_component_getter(Builder.edge)
+wire = __gen_context_component_getter(Builder.wire)
+face = __gen_context_component_getter(Builder.face)
+solid = __gen_context_component_getter(Builder.solid)
+
+
 #
 # To avoid import loops, Vector add & sub are monkey-patched
 
@@ -1184,7 +1296,6 @@ def _vector_add_sub_wrapper(original_op: Callable[[Vector, VectorLike], Vector])
                 vec = WorkplaneList.localize(vec) - origin  # type: ignore[union-attr]
             except AttributeError:
                 # raised from `WorkplaneList._get_context().workplanes[0]` when context is `None`
-                # TODO make a specific `NoContextError` and raise that from `_get_context()` ?
                 pass
         return original_op(self, vec)
 
